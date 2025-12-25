@@ -4,7 +4,7 @@ import ExportModal from './components/ExportModal';
 import { NavItem } from './types';
 
 // 本地存储的 Key - 更新版本号以强制清除旧缓存
-const STORAGE_KEY = 'sys_upgrade_nav_data_v3';
+const STORAGE_KEY = 'sys_upgrade_nav_data_v4';
 
 // 用户指定的固定数据
 const DEFAULT_DATA: NavItem[] = [
@@ -25,6 +25,12 @@ const DEFAULT_DATA: NavItem[] = [
     "url": "https://paidandating2.pages.dev/",
     "title": "派单大厅3",
     "timestamp": 1766630825794
+  },
+  {
+    "id": "1766648916661",
+    "url": "https://paidandating3.pages.dev/",
+    "title": "派单大厅4",
+    "timestamp": 1766648916661
   }
 ];
 
