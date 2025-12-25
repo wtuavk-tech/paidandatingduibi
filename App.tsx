@@ -1,0 +1,453 @@
+import React, { useState, useEffect, useRef } from 'react';
+import AddModal from './components/AddModal';
+import ExportModal from './components/ExportModal';
+import { NavItem } from './types';
+
+// 本地存储的 Key - 更新版本号以强制清除旧缓存
+const STORAGE_KEY = 'sys_upgrade_nav_data_v3';
+
+// 用户指定的固定数据
+const DEFAULT_DATA: NavItem[] = [
+  {
+    "id": "1766216698492",
+    "url": "https://paidanyuan.pages.dev/",
+    "title": "派单大厅1",
+    "timestamp": 1766216698492
+  },
+  {
+    "id": "1766568158805",
+    "url": "https://paidandating1.pages.dev/",
+    "title": "派单大厅2",
+    "timestamp": 1766568158805
+  },
+  {
+    "id": "1766630825794",
+    "url": "https://paidandating2.pages.dev/",
+    "title": "派单大厅3",
+    "timestamp": 1766630825794
+  }
+];
+
+// Helper to clean titles
+const cleanTitle = (title: string) => title.replace(/页$/, '');
+
+const ORDER_MANAGEMENT_ITEMS = new Set([
+  "派单员页", "待入单库", "订单收款页", "报错订单页", "直派订单页", 
+  "派单业绩", "单库页", "原始订单页", "长期订单页", "转派记录页", 
+  "派单记录页", "录单价格页", "报价页", "订单管理页", "订单管理", 
+  "订单收款", "报错订单", "直排订单", "直派订单", "单库", 
+  "原始订单", "长期订单", "转派记录", "派单记录", "改单记录", "改单记录页", 
+  "录单价格", "报价"
+]);
+
+const PROJECT_MANAGEMENT_ITEMS = new Set([
+  "地域项目价格", "地域项目价格页", "好评返现", "用户黑名单", "项目质保"
+]);
+
+const INDEPENDENT_ITEMS = new Set([
+  "录单大厅", "售后管理", "售后管理页"
+]);
+
+// Type for Sidebar Nodes
+type SidebarNode = NavItem | { type: 'group'; key: string; title: string; children: NavItem[] };
+
+const App: React.FC = () => {
+  const [items, setItems] = useState<NavItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error("读取本地缓存失败", e);
+    }
+    return DEFAULT_DATA; 
+  });
+
+  const [activeUrl, setActiveUrl] = useState<string | null>(() => {
+    if (items && items.length > 0) return items[0].url;
+    return null;
+  });
+
+  useEffect(() => {
+    if (!activeUrl && items.length > 0) {
+      setActiveUrl(items[0].url);
+    }
+  }, [items]);
+
+  const [isLoading, setIsLoading] = useState(false);
+  const hasLocalData = !!localStorage.getItem(STORAGE_KEY);
+  const hasUserChanges = useRef(hasLocalData);
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<NavItem | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  
+  // Drag and Drop State
+  const [sidebarOrder, setSidebarOrder] = useState<string[]>([]);
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
+
+  const toggleGroup = (groupKey: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
+
+  const fetchServerData = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch(`/nav-data.json?t=${Date.now()}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          return data;
+        }
+      }
+    } catch (e) {
+      console.error("加载配置失败", e);
+    } finally {
+      setIsLoading(false);
+    }
+    return null;
+  };
+
+  useEffect(() => {
+    const initData = async () => {
+      if (localStorage.getItem(STORAGE_KEY)) {
+        return;
+      }
+      const serverData = await fetchServerData();
+      if (serverData) {
+        setItems(serverData);
+      }
+    };
+    initData();
+  }, []);
+
+  const persistChanges = (newItems: NavItem[]) => {
+    setItems(newItems);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newItems));
+    hasUserChanges.current = true;
+  };
+
+  const handleResetToServer = async () => {
+    if (window.confirm('确定要丢弃本地修改并恢复默认配置吗？')) {
+      localStorage.removeItem(STORAGE_KEY);
+      hasUserChanges.current = false;
+      const serverData = await fetchServerData();
+      if (serverData) {
+        setItems(serverData);
+      } else {
+        setItems(DEFAULT_DATA);
+      }
+    }
+  };
+
+  const handleSaveItem = (url: string, title: string) => {
+    let newItems;
+    if (editingItem) {
+      newItems = items.map(item => 
+        item.id === editingItem.id ? { ...item, url, title } : item
+      );
+    } else {
+      const newItem: NavItem = {
+        id: Date.now().toString(),
+        url,
+        title,
+        timestamp: Date.now(),
+      };
+      newItems = [...items, newItem];
+    }
+    persistChanges(newItems);
+    setEditingItem(null);
+    setIsModalOpen(false);
+  };
+
+  const handleDeleteItem = (id: string) => {
+    const newItems = items.filter(item => item.id !== id);
+    persistChanges(newItems);
+    if (items.find(i => i.id === id)?.url === activeUrl) {
+      if (newItems.length > 0) setActiveUrl(newItems[0].url);
+      else setActiveUrl(null);
+    }
+  };
+
+  const handleEditClick = (item: NavItem) => {
+    setEditingItem(item);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setEditingItem(null);
+  };
+
+  const renderIcon = (title: string, sizeClass = "w-[17px] h-[17px]") => {
+    const iconProps = { className: sizeClass, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" };
+    const t = cleanTitle(title);
+    if (t.includes('首页')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>;
+    if (t.includes('日报')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>;
+    if (t.includes('数据管理') || t.includes('项目')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>;
+    if (t.includes('分析')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>;
+    if (t.includes('店铺')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>;
+    if (t.includes('订单')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>;
+    if (t.includes('师傅')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m12 6a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>;
+    if (t.includes('权限')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>;
+    if (t.includes('财务')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+    if (t.includes('营销')) return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg>;
+    
+    return <svg {...iconProps}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+  };
+
+  const renderNavItem = (item: NavItem, isChild = false) => {
+    const isActive = activeUrl === item.url;
+    return (
+        <div className="group relative">
+            <button
+                onClick={() => setActiveUrl(item.url)}
+                className={`w-full flex flex-row items-center justify-center text-center font-sans transition-all hover:bg-white/5
+                    ${isChild ? 'py-2 px-3 pl-9 text-[11px] text-slate-400' : 'py-[10.5px] px-3 text-[12.16px] font-bold text-white/90'}
+                    ${isActive ? (isChild ? 'text-blue-400 bg-white/5' : 'bg-blue-700 text-white') : ''}
+                `}
+            >
+                <div className={`shrink-0 ${isChild ? 'mr-2' : 'mr-2'}`}>
+                    {renderIcon(item.title, isChild ? "w-3.5 h-3.5" : "w-[17px] h-[17px]")}
+                </div>
+                <span className="truncate leading-tight flex-1">{item.title}</span>
+            </button>
+            <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? 'text-white' : 'text-slate-400'}`}>
+                <button onClick={(e) => {e.stopPropagation(); handleEditClick(item);}} className="p-1 hover:bg-white/20 rounded">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                </button>
+                 <button onClick={(e) => {e.stopPropagation(); if(confirm('确认删除？')) handleDeleteItem(item.id);}} className="p-1 hover:bg-white/20 rounded hover:text-red-400">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+        </div>
+    );
+  };
+
+  const renderSidebarContent = () => {
+    return sortedSidebarNodes.map((node, index) => {
+      if ('type' in node && node.type === 'group') {
+        const isExpanded = expandedGroups.has(node.key);
+        const hasActiveChild = node.children.some((child: NavItem) => child.url === activeUrl);
+        return (
+          <li 
+            key={node.key} 
+            className="border-b border-white/10 cursor-move"
+            draggable
+            onDragStart={(e) => onDragStart(e, index)}
+            onDragEnter={(e) => onDragEnter(e, index)}
+            onDragEnd={onDragEnd}
+            onDragOver={onDragOver}
+          >
+             <button 
+               onClick={() => toggleGroup(node.key)} 
+               className={`w-full flex flex-row items-center justify-center text-center px-3 py-[10.5px] font-bold font-sans transition-all hover:bg-blue-800 ${hasActiveChild ? 'bg-blue-700 text-white' : 'text-white/90'}`}
+             >
+                <div className="shrink-0 mr-2">{renderIcon(node.title, "w-[17px] h-[17px]")}</div>
+                <div className="flex items-center gap-1 overflow-hidden justify-center">
+                    <span className="leading-tight text-[12.16px] truncate">{cleanTitle(node.title)}</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-3 w-3 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
+                </div>
+             </button>
+             <div className={`overflow-hidden transition-all duration-300 ease-in-out bg-[#0F172A] cursor-default ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                <ul className="border-t border-white/5">{node.children.map((child: NavItem) => <li key={child.id}>{renderNavItem(child, true)}</li>)}</ul>
+             </div>
+          </li>
+        );
+      } else {
+        const navItem = node as NavItem;
+        return (
+            <li
+                key={navItem.id}
+                draggable
+                onDragStart={(e) => onDragStart(e, index)}
+                onDragEnter={(e) => onDragEnter(e, index)}
+                onDragEnd={onDragEnd}
+                onDragOver={onDragOver}
+                className="cursor-move border-b border-white/10"
+            >
+                {renderNavItem(navItem)}
+            </li>
+        );
+      }
+    });
+  };
+
+  // Function to generate the node structure based on data (categorization logic)
+  const getSidebarNodes = () => {
+    // Defined sort order as requested
+    const orderedIds = [
+      "home-nav",        // 首页导航
+      "1766216698492",   // 派单大厅
+      "5",               // 录单大厅
+      "4",               // 售后管理页
+      "1766221507325",   // 订单管理
+      "1766202927722",   // 项目管理
+      "1766124456392",   // 工作日报
+      "1766127599481",   // 数据管理
+      "1766124649937",   // 第三方店铺
+      "1765865340448",   // 师傅管理
+      "1766025295066",   // 权限管理
+      "1766106789892",   // 财务管理
+      "1766127895281",   // 营销管理
+    ];
+
+    const nodes: SidebarNode[] = [];
+    const processedIds = new Set<string>();
+
+    // Add ordered items
+    orderedIds.forEach(id => {
+      const item = items.find(i => i.id === id);
+      if (item) {
+        nodes.push(item);
+        processedIds.add(id);
+      }
+    });
+
+    // Handle any remaining items (fallback logic)
+    const remainingItems = items.filter(i => !processedIds.has(i.id));
+    if (remainingItems.length > 0) {
+        const orderChildren = remainingItems.filter(i => ORDER_MANAGEMENT_ITEMS.has(i.title));
+        const projectChildren = remainingItems.filter(i => PROJECT_MANAGEMENT_ITEMS.has(i.title));
+        const remainingProcessed = new Set<string>();
+
+        if (orderChildren.length > 0) {
+            nodes.push({ type: 'group', key: 'g-order', title: '订单管理', children: orderChildren });
+            orderChildren.forEach(i => remainingProcessed.add(i.id));
+        }
+        
+        if (projectChildren.length > 0) {
+            nodes.push({ type: 'group', key: 'g-project', title: '项目管理', children: projectChildren });
+            projectChildren.forEach(i => remainingProcessed.add(i.id));
+        }
+        
+        remainingItems.forEach(item => {
+            if (!remainingProcessed.has(item.id)) {
+                nodes.push(item);
+            }
+        });
+    }
+    
+    return nodes;
+  };
+
+  const sidebarNodes = getSidebarNodes();
+
+  // Sync sidebarOrder with generated nodes
+  useEffect(() => {
+    if (sidebarNodes.length === 0) return;
+
+    setSidebarOrder(prev => {
+        const newKeys = sidebarNodes.map(n => ('type' in n ? n.key : n.id));
+        const keptKeys = prev.filter(k => newKeys.includes(k));
+        const keptKeysSet = new Set(keptKeys);
+        const addedKeys = newKeys.filter(k => !keptKeysSet.has(k));
+        
+        const finalOrder = [...keptKeys, ...addedKeys];
+        
+        if (JSON.stringify(finalOrder) !== JSON.stringify(prev)) {
+            return finalOrder;
+        }
+        return prev;
+    });
+  }, [items]); // Update when items/nodes change
+
+  // Sort nodes based on sidebarOrder
+  const sortedSidebarNodes = [...sidebarNodes].sort((a, b) => {
+      const keyA = 'type' in a ? a.key : a.id;
+      const keyB = 'type' in b ? b.key : b.id;
+      const indexA = sidebarOrder.indexOf(keyA);
+      const indexB = sidebarOrder.indexOf(keyB);
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      return indexA - indexB;
+  });
+
+  const onDragStart = (e: React.DragEvent, index: number) => {
+      dragItem.current = index;
+      e.currentTarget.style.opacity = "0.5";
+      e.dataTransfer.effectAllowed = "move";
+  };
+
+  const onDragEnter = (e: React.DragEvent, index: number) => {
+      e.preventDefault();
+      if (dragItem.current === null) return;
+      if (dragItem.current === index) return;
+
+      const newOrder = [...sidebarOrder];
+      // We are sorting based on the rendered index, but sidebarOrder holds keys.
+      // Need to map rendered index back to keys to perform the swap correctly in the order array.
+      
+      const draggedNode = sortedSidebarNodes[dragItem.current];
+      const targetNode = sortedSidebarNodes[index];
+      
+      const draggedKey = 'type' in draggedNode ? draggedNode.key : draggedNode.id;
+      const targetKey = 'type' in targetNode ? targetNode.key : targetNode.id;
+
+      const currentDraggedIndexInOrder = newOrder.indexOf(draggedKey);
+      const currentTargetIndexInOrder = newOrder.indexOf(targetKey);
+
+      if (currentDraggedIndexInOrder !== -1 && currentTargetIndexInOrder !== -1) {
+          newOrder.splice(currentDraggedIndexInOrder, 1);
+          newOrder.splice(currentTargetIndexInOrder, 0, draggedKey);
+          setSidebarOrder(newOrder);
+          dragItem.current = index;
+      }
+  };
+
+  const onDragEnd = (e: React.DragEvent) => {
+      e.currentTarget.style.opacity = "1";
+      dragItem.current = null;
+  };
+  
+  const onDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+  };
+
+
+  return (
+    <div className="flex flex-col h-screen w-full overflow-hidden bg-slate-100 font-sans">
+        <header className="h-10 bg-slate-900 shadow-md shrink-0 z-30"></header>
+        <div className="flex flex-1 overflow-hidden">
+            <aside className="w-[122px] bg-[#001529] border-r border-white/10 flex flex-col shrink-0 z-20 transition-all duration-300">
+                <div className="flex-1 overflow-y-auto custom-scrollbar"><ul className="py-0">{renderSidebarContent()}</ul></div>
+                <div className="p-2 border-t border-white/10 bg-black/10 flex flex-col gap-2">
+                    <button 
+                        onClick={() => { setEditingItem(null); setIsModalOpen(true); }} 
+                        className="w-full flex flex-row items-center justify-center gap-2 py-1.5 bg-white/10 border border-white/20 text-white rounded text-[10.29px] font-sans hover:bg-blue-600 hover:border-blue-400 transition-all shadow-sm"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                        <span className="truncate">初始化模块</span>
+                    </button>
+
+                    <button onClick={handleResetToServer} className="w-full flex items-center justify-center gap-1 py-1.5 border border-slate-600 bg-slate-800/50 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-medium transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                        <span>重置/刷新</span>
+                    </button>
+
+                    <button onClick={() => setIsExportModalOpen(true)} className="w-full flex items-center justify-center gap-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-medium transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        <span>生成部署配置</span>
+                    </button>
+                </div>
+            </aside>
+            <main className="flex-1 relative bg-slate-100 h-full w-full">{activeUrl ? (<iframe src={activeUrl} className="absolute inset-0 w-full h-full border-none bg-white" title="Content Preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox allow-presentation" />) : (<div className="flex items-center justify-center h-full text-gray-400"><p>请选择左侧导航项目</p></div>)}</main>
+        </div>
+        <AddModal isOpen={isModalOpen} onClose={handleCloseModal} onSubmit={handleSaveItem} initialValues={editingItem ? { title: editingItem.title, url: editingItem.url } : undefined} />
+        <ExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} data={items} />
+    </div>
+  );
+};
+
+export default App;
