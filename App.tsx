@@ -4,33 +4,21 @@ import ExportModal from './components/ExportModal';
 import { NavItem } from './types';
 
 // 本地存储的 Key - 更新版本号以强制清除旧缓存
-const STORAGE_KEY = 'sys_upgrade_nav_data_v4';
+const STORAGE_KEY = 'sys_upgrade_nav_data_v5';
 
 // 用户指定的固定数据
 const DEFAULT_DATA: NavItem[] = [
   {
     "id": "1766216698492",
-    "url": "https://paidanyuan.pages.dev/",
+    "url": "https://paidandating2.pages.dev/",
     "title": "派单大厅1",
     "timestamp": 1766216698492
   },
   {
     "id": "1766568158805",
-    "url": "https://paidandating1.pages.dev/",
+    "url": "https://ludandating4.pages.dev/",
     "title": "派单大厅2",
     "timestamp": 1766568158805
-  },
-  {
-    "id": "1766630825794",
-    "url": "https://paidandating2.pages.dev/",
-    "title": "派单大厅3",
-    "timestamp": 1766630825794
-  },
-  {
-    "id": "1766648916661",
-    "url": "https://paidandating3.pages.dev/",
-    "title": "派单大厅4",
-    "timestamp": 1766648916661
   }
 ];
 
@@ -380,13 +368,13 @@ const App: React.FC = () => {
       return indexA - indexB;
   });
 
-  const onDragStart = (e: React.DragEvent, index: number) => {
+  const onDragStart = (e: React.DragEvent<HTMLLIElement>, index: number) => {
       dragItem.current = index;
       e.currentTarget.style.opacity = "0.5";
       e.dataTransfer.effectAllowed = "move";
   };
 
-  const onDragEnter = (e: React.DragEvent, index: number) => {
+  const onDragEnter = (e: React.DragEvent<HTMLLIElement>, index: number) => {
       e.preventDefault();
       if (dragItem.current === null) return;
       if (dragItem.current === index) return;
@@ -412,12 +400,12 @@ const App: React.FC = () => {
       }
   };
 
-  const onDragEnd = (e: React.DragEvent) => {
+  const onDragEnd = (e: React.DragEvent<HTMLLIElement>) => {
       e.currentTarget.style.opacity = "1";
       dragItem.current = null;
   };
   
-  const onDragOver = (e: React.DragEvent) => {
+  const onDragOver = (e: React.DragEvent<HTMLLIElement>) => {
       e.preventDefault();
   };
 
